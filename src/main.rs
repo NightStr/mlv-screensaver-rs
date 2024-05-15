@@ -57,6 +57,7 @@ fn main() {
     let signal_threshold = min_hp * 100 / max_hp;
     println!("Signal threshold: {}", signal_threshold);
 
+    let mut notified: u8 = 0;
     loop {
         std::thread::sleep(std::time::Duration::from_millis(1000));
         let screens = Screen::all().unwrap();
@@ -73,12 +74,10 @@ fn main() {
         let hp_percentage = hp_bar.iter().filter(|&x| *x == 1).count() as f32 / hp_bar.len() as f32 * 100.0;
         println!("HP percentage: {}", hp_percentage);
 
-        if hp_percentage < signal_threshold as f32 {
-            // Perform signal action
-            // Perform signal action
+        if hp_percentage < signal_threshold as f32 && notified < 3 {
             println!("HP below threshold! Sending signal...");
+            notified += 1;
 
-            // Load the audio file
             let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
             let sink = rodio::Sink::try_new(&handle).unwrap();
         
@@ -86,6 +85,8 @@ fn main() {
             sink.append(rodio::Decoder::new(BufReader::new(file)).unwrap());
         
             sink.sleep_until_end();
+        } else if hp_percentage >= signal_threshold as f32{
+            notified = 0;
         }
     }
 }

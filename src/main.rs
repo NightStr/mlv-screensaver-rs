@@ -1,7 +1,7 @@
 use screenshots::Screen;
 use screenshots::image::{ImageBuffer, Rgba};
 use std::io::{self, Write};
-use rodio::Sink;
+use rodio;
 use std::io::BufReader;
 
 

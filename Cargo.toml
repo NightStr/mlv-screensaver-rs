@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 screenshots = "*"
 rodio = "*"
+winapi = {version="*", features=["winuser"]}
+serde = {version = "*", features = ["derive"]}
+serde_json = "*"

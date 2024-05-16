@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use screenshots::Screen;
 use screenshots::image::{ImageBuffer, Rgba};
 use std::io::{self, Write};
@@ -11,6 +13,7 @@ use serde::{Serialize, Deserialize};
 use std::fs::File;
 use std::io::Read;
 use serde_json;
+use ctrlc;
 
 const GREEN_HP: Rgba<u8> = Rgba([48, 199, 141, 255]);
 const RED_HP: Rgba<u8> = Rgba([210, 106, 92, 255]);
@@ -186,8 +189,16 @@ fn main() {
     let config = get_config();
     println!("Run with config: {:?}", config);
     let window_name = CString::new("OnTopReplica").expect("CString::new failed");
+    
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    ctrlc::set_handler(move || {
+        println!("Exiting...");
+        r.store(false, Ordering::SeqCst);
+    }).expect("Error setting Ctrl-C handler");
+
     let mut notified: u8 = 0;
-    loop {
+    while running.load(Ordering::SeqCst) {
         let mut sleep_duration = std::time::Duration::from_millis(1000);
         let image = get_screen_image(&window_name);
         let need_notification = check_notification_needed(config.signal_threshold as f32, &image);

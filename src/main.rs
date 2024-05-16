@@ -147,8 +147,7 @@ fn beep_beep(volume: f32) {
     sink.sleep_until_end();
 }
 
-
-fn main() {
+fn get_config() -> Config {
     let mut config = Config::default();
     // Prompt the user for max_hp and min_hp values
     print!("Enter max_hp ({}): ", config.max_hp);
@@ -179,8 +178,13 @@ fn main() {
 
     config.signal_threshold = config.min_hp * 100 / config.max_hp;
     config.save_into_file();
+    config
+}
 
-    println!("Config threshold: {:?}", config);
+
+fn main() {
+    let config = get_config();
+    println!("Run with config: {:?}", config);
     let window_name = CString::new("OnTopReplica").expect("CString::new failed");
     let mut notified: u8 = 0;
     loop {

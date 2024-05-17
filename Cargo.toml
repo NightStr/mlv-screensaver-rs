@@ -12,3 +12,5 @@ winapi = {version="*", features=["winuser"]}
 serde = {version = "*", features = ["derive"]}
 serde_json = "*"
 ctrlc = "*"
+crossterm = "*"
+indoc = "2.0.5"

@@ -352,16 +352,16 @@ fn main() {
         if let Event::Key(event) = event::read().unwrap() {
             // println!("{:?}", event);
             match event.code {
-                KeyCode::Char('M' | 'm') => {
+                KeyCode::Char('M' | 'm' | 'Ь' | 'ь') => {
                     current_state.write().unwrap().is_mutted = MuteOptions::Mute;
                 }
-                KeyCode::Char('T' | 't') | KeyCode::Esc => {
+                KeyCode::Char('T' | 't' | 'Е' | 'е') | KeyCode::Esc => {
                     current_state.write().unwrap().is_mutted = MuteOptions::TempMute;
                 }
-                KeyCode::Char('U' | 'u') => {
+                KeyCode::Char('U' | 'u' | 'Г' | 'г') => {
                     current_state.write().unwrap().is_mutted = MuteOptions::Unmute;
                 }
-                KeyCode::Char('Q' | 'q') => {
+                KeyCode::Char('Q' | 'q' | 'Й' | 'й') => {
                     running.store(false, Ordering::SeqCst);
                     println!("Exiting...");
                 }

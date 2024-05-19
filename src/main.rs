@@ -1,20 +1,19 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use screenshots::Screen;
-use screenshots::image::{ImageBuffer, Rgba};
-use std::io::{self, Write};
-use rodio;
-use std::io::BufReader;
+use std::io::{self, Write, Read, BufReader};
+use std::fs::File;
 use std::ffi::CString;
 use std::ptr::null_mut;
+use std::thread;
+
+use screenshots::Screen;
+use screenshots::image::{ImageBuffer, Rgba};
+use rodio;
 use winapi::shared::windef::{HWND, RECT};
 use winapi::um::winuser::{FindWindowA, GetWindowRect};
 use serde::{Serialize, Deserialize};
-use std::fs::File;
-use std::io::Read;
 use serde_json;
 use ctrlc;
-use std::thread;
 use crossterm::{event, queue, cursor, terminal};
 use crossterm::event::{Event, KeyCode};
 use indoc::indoc;

@@ -23,13 +23,6 @@ const GREEN_HP: Rgba<u8> = Rgba([48, 199, 141, 255]);
 const RED_HP: Rgba<u8> = Rgba([210, 106, 92, 255]);
 
 
-enum NeedNotification {
-    Yes(f32),
-    No(f32),
-    HpBarNotFound,
-}
-
-
 #[derive(Debug, PartialEq)]
 enum MuteOptions {
     Mute,
@@ -91,7 +84,7 @@ impl Drop for Config {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum CurrentHpState {
     Hp(f32),
     BarNotFound,
@@ -170,29 +163,24 @@ fn get_screen_image(geometry: Option<RECT>) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
     }
 }
 
-fn check_notification_needed(signal_threshold: f32, image: &ImageBuffer<Rgba<u8>, Vec<u8>>) -> NeedNotification {
+fn get_hp_state(image: &ImageBuffer<Rgba<u8>, Vec<u8>>) -> CurrentHpState {
     let hp_bar_coords = match find_hp_bar_start(&image) {
         Some(hp_bar) => hp_bar,
         None => {
-            return NeedNotification::HpBarNotFound;
+            return CurrentHpState::BarNotFound;
         }
     };
     let hp_bar = get_hp_bar(&image, hp_bar_coords);
     let hp_percentage = hp_bar.iter().filter(|&x| *x == 1).count() as f32 / hp_bar.len() as f32 * 100.0;
 
-    if hp_percentage < signal_threshold {
-        NeedNotification::Yes(hp_percentage)
-    } else {
-        NeedNotification::No(hp_percentage)
-    }
+    CurrentHpState::Hp(hp_percentage)
 }
 
 
-fn beep_beep(volume: f32) {
+fn beep_beep(volume: f32, file: File) {
     let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
     let sink = rodio::Sink::try_new(&handle).unwrap();
 
-    let file = std::fs::File::open("alarm.wav").unwrap();
     sink.append(rodio::Decoder::new(BufReader::new(file)).unwrap());
 
     sink.set_volume(volume);
@@ -253,6 +241,7 @@ fn main() {
         let current_state_clone = current_state.clone();
         let r = running.clone();
         move || {
+        let mut hight_hp_notified = false;
         while r.load(Ordering::SeqCst) {
             let mut sleep_duration = std::time::Duration::from_millis(1000);
             let geometry = get_geometry(&window_name);
@@ -265,24 +254,20 @@ fn main() {
                 }
             };
             let image = get_screen_image(geometry);
-            match check_notification_needed(config.signal_threshold as f32, &image) {
-                NeedNotification::Yes(hp) => {
-                    current_state_clone.write().unwrap().hp = CurrentHpState::Hp(hp);
-                    if current_state_clone.read().unwrap().is_mutted == MuteOptions::Unmute {
-                        beep_beep(config.volume);
-                        sleep_duration = std::time::Duration::from_millis(3000);
-                    }
-                },
-                NeedNotification::No(hp) => {
-                    current_state_clone.write().unwrap().hp = CurrentHpState::Hp(hp);
-                    if current_state_clone.read().unwrap().is_mutted == MuteOptions::TempMute {
-                        current_state_clone.write().unwrap().is_mutted = MuteOptions::Unmute;
-                    }
-                },
-                NeedNotification::HpBarNotFound => {
-                    current_state_clone.write().unwrap().hp = CurrentHpState::BarNotFound;
+            let current_hp = get_hp_state(&image);
+            if let CurrentHpState::Hp(hp) = &current_hp {
+                if *hp < config.signal_threshold as f32 && current_state_clone.read().unwrap().is_mutted == MuteOptions::Unmute {
+                    hight_hp_notified = false;
+                    beep_beep(config.volume, std::fs::File::open("low_hp.wav").unwrap());
+                    sleep_duration = std::time::Duration::from_millis(3000);
+                } else if *hp > config.signal_threshold as f32 && current_state_clone.read().unwrap().is_mutted == MuteOptions::TempMute {
+                    current_state_clone.write().unwrap().is_mutted = MuteOptions::Unmute;
+                } else if *hp >= 99.0 && hight_hp_notified == false {
+                    hight_hp_notified = true;
+                    beep_beep(config.volume, std::fs::File::open("hight_hp.wav").unwrap());
                 }
             };
+            current_state_clone.write().unwrap().hp = current_hp;
             std::thread::sleep(sleep_duration);
         }
     }});

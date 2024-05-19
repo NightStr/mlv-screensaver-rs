@@ -15,3 +15,7 @@ Cargo.lock
 
 /target
 alarm.wav
+default_screenserver.json
+hight_hp.wav
+low_hp.wav
+screenshot.png

@@ -2,100 +2,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::io::{self, Write, BufReader};
 use std::fs::File;
-use std::ffi::CString;
-use std::ptr::null_mut;
 use std::thread;
 
 use mlv_screensaver::config::{AutoControlMode, Config, CurrentHpState, CurrentState, MuteOptions};
 use mlv_screensaver::interface::Interface;
-use screenshots::Screen;
-use screenshots::image::{ImageBuffer, Rgba};
+use mlv_screensaver::hp::HpBarFinder;
 use rodio;
-use winapi::shared::windef::{HWND, RECT};
-use winapi::um::winuser::{FindWindowA, GetWindowRect};
 use ctrlc;
 use crossterm::event;
 use crossterm::event::{Event, KeyCode};
 use enigo::{Button, Coordinate, Enigo, Mouse, Settings, Direction::{Press, Release}};
 
-const GREEN_HP: Rgba<u8> = Rgba([48, 199, 141, 255]);
-const RED_HP: Rgba<u8> = Rgba([210, 106, 92, 255]);
-
 const MOUSE_COORDS: [i32; 2] = [820, 790];
-
-
-fn find_hp_bar_start(image: &ImageBuffer<Rgba<u8>, Vec<u8>>) -> Option<[u32; 2]> {
-    for w in 0..image.width() {
-        for h in 0..image.height() {
-            let pixel = image.get_pixel(w, h);
-            if *pixel == GREEN_HP || *pixel == RED_HP{
-                return Some([w, h]);
-            }
-        }
-    }
-    None
-}
-
-
-fn get_hp_bar(image: &ImageBuffer<Rgba<u8>, Vec<u8>>, hp_bar_coords: [u32; 2]) -> Vec<u8> {
-    let hp_bar_height = hp_bar_coords[1];
-    let mut hp_bar_width = hp_bar_coords[0];
-    let mut hp_bar: Vec<u8> = Vec::new();
-    while hp_bar_width < image.width() {
-        let pixel = *image.get_pixel(hp_bar_width, hp_bar_height);
-        if pixel == GREEN_HP {
-            hp_bar.push(1);
-        }
-        if pixel == RED_HP {
-            hp_bar.push(0);
-        }
-        hp_bar_width += 1;
-    }
-    hp_bar
-}
-
-
-fn get_geometry(window_name: &CString) -> Option<RECT> {
-    let window: HWND = unsafe { FindWindowA(null_mut(), window_name.as_ptr()) };
-    let mut rect: RECT = RECT { left: 0, top: 0, right: 0, bottom: 0 };
-    
-    if !window.is_null() {
-        unsafe { GetWindowRect(window, &mut rect) };
-        Some(rect)
-    } else {
-        None
-    }
-}
-
-
-fn get_screen_image(geometry: Option<RECT>) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
-    let screens = Screen::all().unwrap();
-    let screen = screens.first().unwrap();
-    
-    if let Some(rect) = geometry {
-        screen.capture_area(
-            rect.left + 5, rect.top + 10, 
-            ((rect.right - rect.left) - 10) as u32, 
-            ((rect.bottom - rect.top) - 18) as u32
-        ).unwrap()
-    } else {
-        screen.capture().unwrap()
-    }
-}
-
-
-fn get_hp_state(image: &ImageBuffer<Rgba<u8>, Vec<u8>>) -> CurrentHpState {
-    let hp_bar_coords = match find_hp_bar_start(&image) {
-        Some(hp_bar) => hp_bar,
-        None => {
-            return CurrentHpState::BarNotFound;
-        }
-    };
-    let hp_bar = get_hp_bar(&image, hp_bar_coords);
-    let hp_percentage = hp_bar.iter().filter(|&x| *x == 1).count() as f32 / hp_bar.len() as f32 * 100.0;
-
-    CurrentHpState::Hp(hp_percentage)
-}
 
 
 fn beep_beep(volume: f32, file: File) {
@@ -161,7 +79,6 @@ fn main() {
     let config = get_config();
     let current_state = Arc::new(RwLock::new(CurrentState::default()));
     println!("Run with config: {:?}", config);
-    let window_name = CString::new("OnTopReplica").expect("CString::new failed");
     
     let running = Arc::new(AtomicBool::new(true));
     ctrlc::set_handler({
@@ -176,21 +93,14 @@ fn main() {
         let current_state_clone = current_state.clone();
         let mut current_state_local = *current_state_clone.read().unwrap();
         let r = running.clone();
+        let mut hp_founder = HpBarFinder::new("OnTopReplica");
         move || {
         let mut hight_hp_notified = false;
         while r.load(Ordering::SeqCst) {
             let mut sleep_duration = std::time::Duration::from_millis(1000);
-            let geometry = get_geometry(&window_name);
-            match &geometry {
-                Some(_) => {
-                    current_state_clone.write().unwrap().on_top_replica_found = true;
-                },
-                None => {
-                    current_state_clone.write().unwrap().on_top_replica_found = false;
-                }
-            };
-            let image = get_screen_image(geometry);
-            let current_hp = get_hp_state(&image);
+            let current_hp = hp_founder.get_hp();
+            current_state_clone.write().unwrap().on_top_replica_found = hp_founder.window_was_found();
+            
             current_state_local.update_from(&current_state_clone.read().unwrap());
             if let CurrentHpState::Hp(hp) = &current_hp {
                 if *hp < config.signal_threshold as f32 {

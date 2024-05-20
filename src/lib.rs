@@ -1,4 +1,4 @@
 pub mod config;
 pub mod interface;
-pub mod monitoring;
+pub mod hp;
 pub mod automatization;

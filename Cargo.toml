@@ -14,3 +14,8 @@ serde_json = "*"
 ctrlc = "*"
 crossterm = "*"
 indoc = "2.0.5"
+enigo = "*"
+
+[[bin]]
+name = "mlv-screensaver-experemental"
+path = "src/main.rs"

@@ -1,107 +1,27 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::io::{self, Write, Read, BufReader};
+use std::io::{self, Write, BufReader};
 use std::fs::File;
 use std::ffi::CString;
 use std::ptr::null_mut;
 use std::thread;
 
+use mlv_screensaver::config::{AutoControlMode, Config, CurrentHpState, CurrentState, MuteOptions};
+use mlv_screensaver::interface::Interface;
 use screenshots::Screen;
 use screenshots::image::{ImageBuffer, Rgba};
 use rodio;
 use winapi::shared::windef::{HWND, RECT};
 use winapi::um::winuser::{FindWindowA, GetWindowRect};
-use serde::{Serialize, Deserialize};
-use serde_json;
 use ctrlc;
-use crossterm::{event, queue, cursor, terminal};
+use crossterm::event;
 use crossterm::event::{Event, KeyCode};
-use indoc::indoc;
+use enigo::{Button, Coordinate, Enigo, Mouse, Settings, Direction::{Press, Release}};
 
 const GREEN_HP: Rgba<u8> = Rgba([48, 199, 141, 255]);
 const RED_HP: Rgba<u8> = Rgba([210, 106, 92, 255]);
 
-
-#[derive(Debug, PartialEq)]
-enum MuteOptions {
-    Mute,
-    TempMute,
-    Unmute,
-}
-
-impl Default for MuteOptions {
-    fn default() -> Self {
-        MuteOptions::Unmute
-    }
-}
-
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Config {
-    max_hp: u32,
-    min_hp: u32,
-    volume: f32,
-    signal_threshold: u32,
-}
-
-impl Config {
-    fn save_into_file(&self) {
-        let config_json = serde_json::to_string(&self).expect("Failed to serialize JSON");
-        let mut file = File::create("default_screenserver.json").expect("Failed to create file");
-        file.write_all(config_json.as_bytes()).expect("Failed to write to file");
-    }
-
-    fn load_from_file() -> Result<Self, String> {
-        let mut file = File::open("default_screenserver.json").map_err(|e| e.to_string())?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents).map_err(|e| e.to_string())?;
-        let config: Config = serde_json::from_str(&contents).map_err(|e| e.to_string())?;
-        Ok(config)
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        if let Ok(config) = Config::load_from_file() {
-            config
-        } else {
-            Config {
-                max_hp: 0,
-                min_hp: 0,
-                volume: 1.0,
-                signal_threshold: 0,
-            }
-        }
-    }
-}
-
-
-impl Drop for Config {
-    fn drop(&mut self) {
-        self.save_into_file();
-    }
-}
-
-
-#[derive(Debug, PartialEq)]
-enum CurrentHpState {
-    Hp(f32),
-    BarNotFound,
-}
-
-impl Default for CurrentHpState {
-    fn default() -> Self {
-        CurrentHpState::Hp(0.0)
-    }
-}
-
-
-#[derive(Debug, Default)]
-struct CurrentState {
-    hp: CurrentHpState,
-    on_top_replica_found: bool,
-    is_mutted: MuteOptions,
-}
+const MOUSE_COORDS: [i32; 2] = [820, 790];
 
 
 fn find_hp_bar_start(image: &ImageBuffer<Rgba<u8>, Vec<u8>>) -> Option<[u32; 2]> {
@@ -134,6 +54,7 @@ fn get_hp_bar(image: &ImageBuffer<Rgba<u8>, Vec<u8>>, hp_bar_coords: [u32; 2]) -
     hp_bar
 }
 
+
 fn get_geometry(window_name: &CString) -> Option<RECT> {
     let window: HWND = unsafe { FindWindowA(null_mut(), window_name.as_ptr()) };
     let mut rect: RECT = RECT { left: 0, top: 0, right: 0, bottom: 0 };
@@ -162,6 +83,7 @@ fn get_screen_image(geometry: Option<RECT>) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
     }
 }
 
+
 fn get_hp_state(image: &ImageBuffer<Rgba<u8>, Vec<u8>>) -> CurrentHpState {
     let hp_bar_coords = match find_hp_bar_start(&image) {
         Some(hp_bar) => hp_bar,
@@ -185,6 +107,7 @@ fn beep_beep(volume: f32, file: File) {
     sink.set_volume(volume);
     sink.sleep_until_end();
 }
+
 
 fn get_config() -> Config {
     let mut config = Config::default();
@@ -221,6 +144,19 @@ fn get_config() -> Config {
 }
 
 
+fn move_mouse_and_click(x: i32, y: i32, mouse_button: Button, sleep_duration: std::time::Duration) {
+    let mut enigo = Enigo::new(&Settings::default()).unwrap();
+    let start = std::time::Instant::now();
+    while std::time::Instant::now() - start < sleep_duration {
+        thread::yield_now();
+    }
+    enigo.move_mouse(x, y, Coordinate::Abs).unwrap();
+    enigo.button(mouse_button, Press).unwrap();
+    thread::sleep(std::time::Duration::from_millis(20));
+    enigo.button(mouse_button, Release).unwrap();
+}
+
+
 fn main() {
     let config = get_config();
     let current_state = Arc::new(RwLock::new(CurrentState::default()));
@@ -238,6 +174,7 @@ fn main() {
 
     let work_handler = thread::spawn({
         let current_state_clone = current_state.clone();
+        let mut current_state_local = *current_state_clone.read().unwrap();
         let r = running.clone();
         move || {
         let mut hight_hp_notified = false;
@@ -254,16 +191,48 @@ fn main() {
             };
             let image = get_screen_image(geometry);
             let current_hp = get_hp_state(&image);
+            current_state_local.update_from(&current_state_clone.read().unwrap());
             if let CurrentHpState::Hp(hp) = &current_hp {
-                if *hp < config.signal_threshold as f32 && current_state_clone.read().unwrap().is_mutted == MuteOptions::Unmute {
+                if *hp < config.signal_threshold as f32 {
                     hight_hp_notified = false;
-                    beep_beep(config.volume, std::fs::File::open("low_hp.wav").unwrap());
-                    sleep_duration = std::time::Duration::from_millis(3000);
-                } else if *hp > config.signal_threshold as f32 && current_state_clone.read().unwrap().is_mutted == MuteOptions::TempMute {
+                    match current_state_local.auto_control {
+                        AutoControlMode::On if current_state_local.is_thieving_active == true => {
+                            current_state_clone.write().unwrap().is_thieving_active = false;
+                            move_mouse_and_click(
+                                MOUSE_COORDS[0], MOUSE_COORDS[1], Button::Left, 
+                                std::time::Duration::from_secs(3)
+                            );
+                        }
+                        AutoControlMode::Temporarily if current_state_local.is_thieving_active == true => {
+                            current_state_clone.write().unwrap().is_thieving_active = false;
+                            move_mouse_and_click(
+                                MOUSE_COORDS[0], MOUSE_COORDS[1], Button::Left, 
+                                std::time::Duration::from_secs(3)
+                            );
+                            current_state_clone.write().unwrap().auto_control = AutoControlMode::Off;
+                        }
+                        _ => {},
+                    };
+                    if current_state_local.is_mutted == MuteOptions::Unmute {
+                        beep_beep(config.volume, std::fs::File::open("low_hp.wav").unwrap());
+                        sleep_duration = std::time::Duration::from_millis(3000);
+                    }
+                } else if *hp > config.signal_threshold as f32 && current_state_local.is_mutted == MuteOptions::TempMute {
                     current_state_clone.write().unwrap().is_mutted = MuteOptions::Unmute;
-                } else if *hp >= 99.0 && hight_hp_notified == false {
-                    hight_hp_notified = true;
-                    beep_beep(config.volume, std::fs::File::open("hight_hp.wav").unwrap());
+                } else if *hp >= 99.0 {
+                    match current_state_local.auto_control {
+                        AutoControlMode::On | AutoControlMode::Temporarily if current_state_local.is_thieving_active == false => {
+                            current_state_clone.write().unwrap().is_thieving_active = true;
+                            move_mouse_and_click(
+                                MOUSE_COORDS[0], MOUSE_COORDS[1], Button::Left, std::time::Duration::default()
+                            );
+                        }
+                        _ => {},
+                    };
+                    if hight_hp_notified == false {
+                        hight_hp_notified = true;
+                        beep_beep(config.volume, std::fs::File::open("hight_hp.wav").unwrap());
+                    }
                 }
             };
             current_state_clone.write().unwrap().hp = current_hp;
@@ -271,62 +240,12 @@ fn main() {
         }
     }});
     let interface_handler = thread::spawn({
-        let current_state_clone = current_state.clone();
+        let mut interface = Interface::new(current_state.clone());
+        interface.draw();
         let r = running.clone();
-        let mut stdout = io::stdout();
-        {
-            println!("");
-            let current_state = current_state_clone.read().unwrap();
-            println!(indoc! {
-                    r#"
-                    Hp: {}
-                    OnTopReplica found: {}
-                    Mutted: {}
-
-                    M|m: Mute
-                    Esc|T|t: Temporarily mute
-                    U|u: Unmute
-                    Q|q: Quit
-                    "#
-                }, 
-                match current_state.hp {
-                    CurrentHpState::Hp(hp) => format!("{:.2}%", hp),
-                    CurrentHpState::BarNotFound => "HP bar not found".to_string(),
-                }, 
-                current_state.on_top_replica_found,
-                match current_state.is_mutted {
-                    MuteOptions::Mute => "Yes",
-                    MuteOptions::TempMute => "Temporarily",
-                    MuteOptions::Unmute => "No",
-                }
-            );
-        }
         move || {
             while r.load(Ordering::SeqCst) {
-                queue!(stdout, cursor::MoveUp(9)).unwrap();
-                queue!(stdout, cursor::MoveToColumn(0)).unwrap();
-                queue!(stdout, terminal::Clear(terminal::ClearType::UntilNewLine)).unwrap();
-                print!("Hp: {}", match current_state_clone.read().unwrap().hp {
-                    CurrentHpState::Hp(hp) => format!("{:.2}%", hp),
-                    CurrentHpState::BarNotFound => "HP bar not found".to_string(),
-                });
-                queue!(stdout, cursor::MoveDown(1)).unwrap();
-                queue!(stdout, cursor::MoveToColumn(0)).unwrap();
-                queue!(stdout, terminal::Clear(terminal::ClearType::UntilNewLine)).unwrap();
-                print!("OnTopReplica found: {}", current_state_clone.read().unwrap().on_top_replica_found);
-                queue!(stdout, cursor::MoveDown(1)).unwrap();
-                queue!(stdout, cursor::MoveToColumn(0)).unwrap();
-                queue!(stdout, terminal::Clear(terminal::ClearType::UntilNewLine)).unwrap();
-                print!("Mutted: {}", 
-                    match current_state_clone.read().unwrap().is_mutted {
-                        MuteOptions::Mute => "Yes",
-                        MuteOptions::TempMute => "Temporarily",
-                        MuteOptions::Unmute => "No",
-                    }
-                );
-                queue!(stdout, cursor::MoveDown(7)).unwrap();
-                queue!(stdout, cursor::MoveToColumn(0)).unwrap();
-                std::io::stdout().flush().unwrap();
+                interface.update();
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
         }
@@ -334,16 +253,83 @@ fn main() {
 
     while running.load(Ordering::SeqCst) {
         if let Event::Key(event) = event::read().unwrap() {
-            // println!("{:?}", event);
+            if event.kind == event::KeyEventKind::Release {
+                continue;
+            };
             match event.code {
                 KeyCode::Char('M' | 'm' | 'Ь' | 'ь') => {
-                    current_state.write().unwrap().is_mutted = MuteOptions::Mute;
+                    let is_mutted = {
+                        current_state.write().unwrap().is_mutted.clone()
+                    };
+                    match is_mutted {
+                        MuteOptions::Mute => {
+                            current_state.write().unwrap().is_mutted = MuteOptions::Unmute;
+                        },
+                        MuteOptions::TempMute => {
+                            current_state.write().unwrap().is_mutted = MuteOptions::Mute;
+                        },
+                        MuteOptions::Unmute => {
+                            current_state.write().unwrap().is_mutted = MuteOptions::Mute;
+                        }
+                    }
                 }
                 KeyCode::Char('T' | 't' | 'Е' | 'е') | KeyCode::Esc => {
-                    current_state.write().unwrap().is_mutted = MuteOptions::TempMute;
+                    let is_mutted = {
+                        current_state.write().unwrap().is_mutted.clone()
+                    };
+                    match is_mutted {
+                        MuteOptions::Mute => {
+                            current_state.write().unwrap().is_mutted = MuteOptions::TempMute;
+                        },
+                        MuteOptions::TempMute => {
+                            current_state.write().unwrap().is_mutted = MuteOptions::Unmute;
+                        },
+                        MuteOptions::Unmute => {
+                            current_state.write().unwrap().is_mutted = MuteOptions::TempMute;
+                        }
+                    }
                 }
-                KeyCode::Char('U' | 'u' | 'Г' | 'г') => {
-                    current_state.write().unwrap().is_mutted = MuteOptions::Unmute;
+                KeyCode::Char('A' | 'a' | 'Ф' | 'ф') => {
+                    let auto_control = {
+                        current_state.write().unwrap().auto_control.clone()
+                    };
+                    match auto_control {
+                        AutoControlMode::Off => {
+                            current_state.write().unwrap().auto_control = AutoControlMode::On;
+                        },
+                        AutoControlMode::On => {
+                            current_state.write().unwrap().auto_control = AutoControlMode::Off;
+                        },
+                        AutoControlMode::Temporarily => {
+                            current_state.write().unwrap().auto_control = AutoControlMode::On;
+                        }
+                    };
+                }
+                KeyCode::Char('S' | 's' | 'Ы' | 'ы') => {
+                    let auto_control = {
+                        current_state.write().unwrap().auto_control.clone()
+                    };
+                    match auto_control {
+                        AutoControlMode::Off => {
+                            current_state.write().unwrap().auto_control = AutoControlMode::Temporarily;
+                        },
+                        AutoControlMode::On => {
+                            current_state.write().unwrap().auto_control = AutoControlMode::Temporarily;
+                        },
+                        AutoControlMode::Temporarily => {
+                            current_state.write().unwrap().auto_control = AutoControlMode::Off;
+                        }
+                    };
+                }
+                KeyCode::Char('B' | 'b' | 'И' | 'и') => {
+                    let is_thiving_active = {
+                        current_state.read().unwrap().is_thieving_active
+                    };
+                    current_state.write().unwrap().is_thieving_active = !is_thiving_active;
+                }
+                KeyCode::Char('G' | 'g' | 'П' | 'п') => {
+                    thread::sleep(std::time::Duration::from_millis(2000));
+                    move_mouse_and_click(MOUSE_COORDS[0], MOUSE_COORDS[1], Button::Left, std::time::Duration::default());
                 }
                 KeyCode::Char('Q' | 'q' | 'Й' | 'й') => {
                     running.store(false, Ordering::SeqCst);

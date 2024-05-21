@@ -61,8 +61,8 @@ fn main() {
         current_state.clone(),
         config,
         MOUSE_COORDS,
-        "Low hp",
-        "High hp",
+        "low_hp.wav",
+        "hight_hp.wav",
         std::time::Duration::from_millis(1000)
     ).unwrap();
     let mut display = DisplayInterface::new(

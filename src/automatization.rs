@@ -1,6 +1,8 @@
 use std::sync::{Arc, RwLock};
 use std::thread;
 use enigo::{Button, Coordinate, Enigo, Mouse, Settings, Direction::{Press, Release}};
+use rodio;
+
 use crate::config::{AutoControlMode, Config, CurrentHpState, CurrentState, MuteOptions};
 use crate::hp::HpBarFinder;
 

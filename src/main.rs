@@ -1,12 +1,10 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::io::{self, Write};
 use std::thread;
+use ctrlc;
 
 use mlv_screensaver::config::{Config, CurrentState};
 use mlv_screensaver::interface::{DisplayInterface, KeyboardKeyPressProcessor};
-use rodio;
-use ctrlc;
 use mlv_screensaver::automatization::AutoControl;
 
 const MOUSE_COORDS: [i32; 2] = [820, 790];
@@ -51,12 +49,11 @@ fn main() {
     let config = get_config();
     let current_state = Arc::new(RwLock::new(CurrentState::default()));
     println!("Run with config: {:?}", config);
-    let running = Arc::new(AtomicBool::new(true));
     ctrlc::set_handler({
-        let r = running.clone();
+        let current_state = current_state.clone();
         move || {
             println!("Exiting...");
-            r.store(false, Ordering::SeqCst);
+            current_state.write().unwrap().is_running = false;
         }
     }).expect("Error setting Ctrl-C handler");
 

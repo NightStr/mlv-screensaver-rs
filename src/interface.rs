@@ -40,7 +40,7 @@ impl DisplayInterface {
             "#}, 
             0, 
             app_state.on_top_replica_found,
-            match app_state.is_mutted {
+            match app_state.is_muted {
                 MuteOptions::Mute => "Yes",
                 MuteOptions::TempMute => "Temporarily",
                 MuteOptions::Unmute => "No",
@@ -95,7 +95,7 @@ impl DisplayInterface {
 
             print_line!(self.stdout, format!("OnTopReplica found: {}", self.app_state.on_top_replica_found));
             print_line!(self.stdout, "");
-            print_line!(self.stdout, format!("Mutted: {}", match self.app_state.is_mutted {
+            print_line!(self.stdout, format!("Mutted: {}", match self.app_state.is_muted {
                 MuteOptions::Mute => "Yes",
                 MuteOptions::TempMute => "Temporarily",
                 MuteOptions::Unmute => "No",
@@ -142,34 +142,34 @@ impl KeyboardKeyPressProcessor {
 
         match event.code {
             KeyCode::Char('M' | 'm' | 'Ь' | 'ь') => {
-                let is_mutted = {
-                    self.shared_app_state.write().unwrap().is_mutted.clone()
+                let is_muted = {
+                    self.shared_app_state.write().unwrap().is_muted.clone()
                 };
-                match is_mutted {
+                match is_muted {
                     MuteOptions::Mute => {
-                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::Unmute;
+                        self.shared_app_state.write().unwrap().is_muted = MuteOptions::Unmute;
                     },
                     MuteOptions::TempMute => {
-                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::Mute;
+                        self.shared_app_state.write().unwrap().is_muted = MuteOptions::Mute;
                     },
                     MuteOptions::Unmute => {
-                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::Mute;
+                        self.shared_app_state.write().unwrap().is_muted = MuteOptions::Mute;
                     }
                 }
             }
             KeyCode::Char('T' | 't' | 'Е' | 'е') | KeyCode::Esc => {
-                let is_mutted = {
-                    self.shared_app_state.write().unwrap().is_mutted.clone()
+                let is_muted = {
+                    self.shared_app_state.write().unwrap().is_muted.clone()
                 };
-                match is_mutted {
+                match is_muted {
                     MuteOptions::Mute => {
-                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::TempMute;
+                        self.shared_app_state.write().unwrap().is_muted = MuteOptions::TempMute;
                     },
                     MuteOptions::TempMute => {
-                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::Unmute;
+                        self.shared_app_state.write().unwrap().is_muted = MuteOptions::Unmute;
                     },
                     MuteOptions::Unmute => {
-                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::TempMute;
+                        self.shared_app_state.write().unwrap().is_muted = MuteOptions::TempMute;
                     }
                 }
             }

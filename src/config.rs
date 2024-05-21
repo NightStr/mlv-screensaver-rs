@@ -87,7 +87,7 @@ impl Display for AutoControlMode {
 pub struct CurrentState {
     pub hp: CurrentHpState,
     pub on_top_replica_found: bool,
-    pub is_mutted: MuteOptions,
+    pub is_muted: MuteOptions,
     pub auto_control: AutoControlMode,
     pub is_thieving_active: bool,
     pub is_running: bool,
@@ -98,7 +98,7 @@ impl From <&CurrentState> for CurrentState {
         CurrentState {
             hp: other.hp,
             on_top_replica_found: other.on_top_replica_found,
-            is_mutted: other.is_mutted,
+            is_muted: other.is_muted,
             auto_control: other.auto_control,
             is_thieving_active: other.is_thieving_active,
             is_running: other.is_running,
@@ -110,7 +110,7 @@ impl CurrentState {
     pub fn update_from(&mut self, other: &CurrentState) {
         self.hp = other.hp;
         self.on_top_replica_found = other.on_top_replica_found;
-        self.is_mutted = other.is_mutted;
+        self.is_muted = other.is_muted;
         self.auto_control = other.auto_control;
         self.is_thieving_active = other.is_thieving_active;
         self.is_running = other.is_running;

@@ -161,15 +161,15 @@ impl AutoControl {
                 if *hp < self.config.signal_threshold as f32 {
                     self.stop_thieving();
                     self.high_hp_notified = false;
-                    if self.app_state.is_mutted == MuteOptions::Unmute {
+                    if self.app_state.is_muted == MuteOptions::Unmute {
                         self.notifier.low_hp_notify().unwrap();
                         sleep_duration = std::time::Duration::from_millis(3000);
                     }
                 }
                 if *hp < self.config.signal_threshold as f32 &&
-                    self.app_state.is_mutted == MuteOptions::TempMute
+                    self.app_state.is_muted == MuteOptions::TempMute
                 {
-                    self.shared_app_state.write().unwrap().is_mutted = MuteOptions::Unmute;
+                    self.shared_app_state.write().unwrap().is_muted = MuteOptions::Unmute;
                 }
             };
             self.shared_app_state.write().unwrap().hp = current_hp;

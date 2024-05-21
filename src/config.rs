@@ -83,7 +83,7 @@ impl Display for AutoControlMode {
 }
 
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct CurrentState {
     pub hp: CurrentHpState,
     pub on_top_replica_found: bool,
@@ -91,6 +91,19 @@ pub struct CurrentState {
     pub auto_control: AutoControlMode,
     pub is_thieving_active: bool,
     pub is_running: bool,
+}
+
+impl Default for CurrentState {
+    fn default() -> Self {
+        CurrentState {
+            hp: CurrentHpState::default(),
+            on_top_replica_found: false,
+            is_muted: MuteOptions::default(),
+            auto_control: AutoControlMode::default(),
+            is_thieving_active: false,
+            is_running: true,
+        }
+    }
 }
 
 impl From <&CurrentState> for CurrentState {

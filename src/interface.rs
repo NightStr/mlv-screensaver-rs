@@ -1,6 +1,7 @@
 use std::{io::{self, Write}, sync::{Arc, RwLock}};
-use crate::config::{CurrentState, MuteOptions, CurrentHpState};
-use crossterm::{queue, cursor, terminal};
+use crate::config::{CurrentState, MuteOptions, CurrentHpState, AutoControlMode};
+use crossterm::{queue, cursor, terminal, event};
+use crossterm::event::{Event, KeyCode, KeyEvent};
 use indoc::indoc;
 
 macro_rules! print_line {
@@ -13,7 +14,7 @@ macro_rules! print_line {
 }
 
 
-pub struct Interface {
+pub struct DisplayInterface {
     shared_app_state: Arc<RwLock<CurrentState>>,
     app_state: CurrentState,
     dynamic_part: String,
@@ -23,7 +24,7 @@ pub struct Interface {
 }
 
 
-impl Interface {
+impl DisplayInterface {
     pub fn new(
         shared_app_state: Arc<RwLock<CurrentState>>,
         tick_rate: std::time::Duration,
@@ -60,7 +61,7 @@ impl Interface {
             Q|q: Quit"#
         });
 
-        Interface {
+        DisplayInterface {
             shared_app_state,
             tick_rate,
             app_state,
@@ -110,6 +111,120 @@ impl Interface {
             queue!(self.stdout, cursor::MoveToColumn(0)).unwrap();
             io::stdout().flush().unwrap();
             std::thread::sleep(self.tick_rate);
+        }
+    }
+}
+
+
+pub struct KeyboardKeyPressProcessor {
+    shared_app_state: Arc<RwLock<CurrentState>>,
+    app_state: CurrentState,
+}
+
+
+impl KeyboardKeyPressProcessor {
+    pub fn new(shared_app_state: Arc<RwLock<CurrentState>>) -> Self {
+        let app_state = *shared_app_state.read().unwrap();
+        KeyboardKeyPressProcessor {
+            shared_app_state,
+            app_state,
+        }
+    }
+
+    fn update_app_state(&mut self) {
+        self.app_state.update_from(&self.shared_app_state.read().unwrap());
+    }
+
+    fn process_event(&self, event: KeyEvent) {
+        if event.kind == event::KeyEventKind::Release {
+            return;
+        };
+
+        match event.code {
+            KeyCode::Char('M' | 'm' | 'Ь' | 'ь') => {
+                let is_mutted = {
+                    self.shared_app_state.write().unwrap().is_mutted.clone()
+                };
+                match is_mutted {
+                    MuteOptions::Mute => {
+                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::Unmute;
+                    },
+                    MuteOptions::TempMute => {
+                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::Mute;
+                    },
+                    MuteOptions::Unmute => {
+                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::Mute;
+                    }
+                }
+            }
+            KeyCode::Char('T' | 't' | 'Е' | 'е') | KeyCode::Esc => {
+                let is_mutted = {
+                    self.shared_app_state.write().unwrap().is_mutted.clone()
+                };
+                match is_mutted {
+                    MuteOptions::Mute => {
+                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::TempMute;
+                    },
+                    MuteOptions::TempMute => {
+                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::Unmute;
+                    },
+                    MuteOptions::Unmute => {
+                        self.shared_app_state.write().unwrap().is_mutted = MuteOptions::TempMute;
+                    }
+                }
+            }
+            KeyCode::Char('A' | 'a' | 'Ф' | 'ф') => {
+                let auto_control = {
+                    self.shared_app_state.write().unwrap().auto_control.clone()
+                };
+                match auto_control {
+                    AutoControlMode::Off => {
+                        self.shared_app_state.write().unwrap().auto_control = AutoControlMode::On;
+                    },
+                    AutoControlMode::On => {
+                        self.shared_app_state.write().unwrap().auto_control = AutoControlMode::Off;
+                    },
+                    AutoControlMode::Temporarily => {
+                        self.shared_app_state.write().unwrap().auto_control = AutoControlMode::On;
+                    }
+                };
+            }
+            KeyCode::Char('S' | 's' | 'Ы' | 'ы') => {
+                let auto_control = {
+                    self.shared_app_state.write().unwrap().auto_control.clone()
+                };
+                match auto_control {
+                    AutoControlMode::Off => {
+                        self.shared_app_state.write().unwrap().auto_control = AutoControlMode::Temporarily;
+                    },
+                    AutoControlMode::On => {
+                        self.shared_app_state.write().unwrap().auto_control = AutoControlMode::Temporarily;
+                    },
+                    AutoControlMode::Temporarily => {
+                        self.shared_app_state.write().unwrap().auto_control = AutoControlMode::Off;
+                    }
+                };
+            }
+            KeyCode::Char('B' | 'b' | 'И' | 'и') => {
+                let is_thiving_active = {
+                    self.shared_app_state.read().unwrap().is_thieving_active
+                };
+                self.shared_app_state.write().unwrap().is_thieving_active = !is_thiving_active;
+            }
+            KeyCode::Char('Q' | 'q' | 'Й' | 'й') => {
+                self.shared_app_state.write().unwrap().is_running = false;
+                println!("Exiting...");
+            }
+            _ => {}
+        }
+    }
+
+    pub fn update(&mut self) {
+        while self.app_state.is_running {
+            if let Event::Key(event) = event::read().unwrap() {
+                self.update_app_state();
+                self.process_event(event);
+            }
         }
     }
 }

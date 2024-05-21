@@ -3,12 +3,10 @@ use std::sync::{Arc, RwLock};
 use std::io::{self, Write};
 use std::thread;
 
-use mlv_screensaver::config::{AutoControlMode, Config, CurrentState, MuteOptions};
-use mlv_screensaver::interface::Interface;
+use mlv_screensaver::config::{Config, CurrentState};
+use mlv_screensaver::interface::{DisplayInterface, KeyboardKeyPressProcessor};
 use rodio;
 use ctrlc;
-use crossterm::event;
-use crossterm::event::{Event, KeyCode};
 use mlv_screensaver::automatization::AutoControl;
 
 const MOUSE_COORDS: [i32; 2] = [820, 790];
@@ -52,7 +50,6 @@ fn get_config() -> Config {
 fn main() {
     let config = get_config();
     let current_state = Arc::new(RwLock::new(CurrentState::default()));
-    let mut local_state = CurrentState::from(current_state.read().unwrap());
     println!("Run with config: {:?}", config);
     let running = Arc::new(AtomicBool::new(true));
     ctrlc::set_handler({
@@ -71,98 +68,15 @@ fn main() {
         "High hp",
         std::time::Duration::from_millis(1000)
     ).unwrap();
-    let mut interface = Interface::new(
+    let mut display = DisplayInterface::new(
         current_state.clone(),
         std::time::Duration::from_millis(200)
     );
+    let mut keyboard_processor = KeyboardKeyPressProcessor::new(current_state.clone());
     let work_handler = thread::spawn(move || {auto_control.run()});
-    let interface_handler = thread::spawn(move || {interface.update()});
+    let interface_handler = thread::spawn(move || { display.update()});
 
-    while local_state.is_running {
-        local_state.update_from(&current_state.read().unwrap());
-        if let Event::Key(event) = event::read().unwrap() {
-            if event.kind == event::KeyEventKind::Release {
-                continue;
-            };
-            match event.code {
-                KeyCode::Char('M' | 'm' | 'Ь' | 'ь') => {
-                    let is_mutted = {
-                        current_state.write().unwrap().is_mutted.clone()
-                    };
-                    match is_mutted {
-                        MuteOptions::Mute => {
-                            current_state.write().unwrap().is_mutted = MuteOptions::Unmute;
-                        },
-                        MuteOptions::TempMute => {
-                            current_state.write().unwrap().is_mutted = MuteOptions::Mute;
-                        },
-                        MuteOptions::Unmute => {
-                            current_state.write().unwrap().is_mutted = MuteOptions::Mute;
-                        }
-                    }
-                }
-                KeyCode::Char('T' | 't' | 'Е' | 'е') | KeyCode::Esc => {
-                    let is_mutted = {
-                        current_state.write().unwrap().is_mutted.clone()
-                    };
-                    match is_mutted {
-                        MuteOptions::Mute => {
-                            current_state.write().unwrap().is_mutted = MuteOptions::TempMute;
-                        },
-                        MuteOptions::TempMute => {
-                            current_state.write().unwrap().is_mutted = MuteOptions::Unmute;
-                        },
-                        MuteOptions::Unmute => {
-                            current_state.write().unwrap().is_mutted = MuteOptions::TempMute;
-                        }
-                    }
-                }
-                KeyCode::Char('A' | 'a' | 'Ф' | 'ф') => {
-                    let auto_control = {
-                        current_state.write().unwrap().auto_control.clone()
-                    };
-                    match auto_control {
-                        AutoControlMode::Off => {
-                            current_state.write().unwrap().auto_control = AutoControlMode::On;
-                        },
-                        AutoControlMode::On => {
-                            current_state.write().unwrap().auto_control = AutoControlMode::Off;
-                        },
-                        AutoControlMode::Temporarily => {
-                            current_state.write().unwrap().auto_control = AutoControlMode::On;
-                        }
-                    };
-                }
-                KeyCode::Char('S' | 's' | 'Ы' | 'ы') => {
-                    let auto_control = {
-                        current_state.write().unwrap().auto_control.clone()
-                    };
-                    match auto_control {
-                        AutoControlMode::Off => {
-                            current_state.write().unwrap().auto_control = AutoControlMode::Temporarily;
-                        },
-                        AutoControlMode::On => {
-                            current_state.write().unwrap().auto_control = AutoControlMode::Temporarily;
-                        },
-                        AutoControlMode::Temporarily => {
-                            current_state.write().unwrap().auto_control = AutoControlMode::Off;
-                        }
-                    };
-                }
-                KeyCode::Char('B' | 'b' | 'И' | 'и') => {
-                    let is_thiving_active = {
-                        current_state.read().unwrap().is_thieving_active
-                    };
-                    current_state.write().unwrap().is_thieving_active = !is_thiving_active;
-                }
-                KeyCode::Char('Q' | 'q' | 'Й' | 'й') => {
-                    running.store(false, Ordering::SeqCst);
-                    println!("Exiting...");
-                }
-                _ => {}
-            }
-        }
-    }
+    keyboard_processor.update();
     work_handler.join().unwrap();
     interface_handler.join().unwrap();
 }

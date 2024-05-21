@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::io::{self, Write, BufReader};
-use std::fs::File;
+use std::io::{self, Write};
 use std::thread;
 
 use mlv_screensaver::config::{AutoControlMode, Config, CurrentHpState, CurrentState, MuteOptions};
@@ -12,19 +11,9 @@ use ctrlc;
 use crossterm::event;
 use crossterm::event::{Event, KeyCode};
 use enigo::{Button, Coordinate, Enigo, Mouse, Settings, Direction::{Press, Release}};
+use mlv_screensaver::automatization::Notifier;
 
 const MOUSE_COORDS: [i32; 2] = [820, 790];
-
-
-fn beep_beep(volume: f32, file: File) {
-    let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
-    let sink = rodio::Sink::try_new(&handle).unwrap();
-
-    sink.append(rodio::Decoder::new(BufReader::new(file)).unwrap());
-
-    sink.set_volume(volume);
-    sink.sleep_until_end();
-}
 
 
 fn get_config() -> Config {
@@ -94,6 +83,9 @@ fn main() {
         let mut current_state_local = *current_state_clone.read().unwrap();
         let r = running.clone();
         let mut hp_founder = HpBarFinder::new("OnTopReplica");
+        let mut notifier = Notifier::new(
+            config.volume, "low_hp.wav", "hight_hp.wav"
+        );
         move || {
         let mut hight_hp_notified = false;
         while r.load(Ordering::SeqCst) {
@@ -124,7 +116,7 @@ fn main() {
                         _ => {},
                     };
                     if current_state_local.is_mutted == MuteOptions::Unmute {
-                        beep_beep(config.volume, std::fs::File::open("low_hp.wav").unwrap());
+                        notifier.low_hp_notify().unwrap();
                         sleep_duration = std::time::Duration::from_millis(3000);
                     }
                 } else if *hp > config.signal_threshold as f32 && current_state_local.is_mutted == MuteOptions::TempMute {
@@ -141,7 +133,7 @@ fn main() {
                     };
                     if hight_hp_notified == false {
                         hight_hp_notified = true;
-                        beep_beep(config.volume, std::fs::File::open("hight_hp.wav").unwrap());
+                        notifier.high_hp_notify().unwrap();
                     }
                 }
             };

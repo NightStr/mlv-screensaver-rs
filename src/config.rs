@@ -90,6 +90,20 @@ pub struct CurrentState {
     pub is_mutted: MuteOptions,
     pub auto_control: AutoControlMode,
     pub is_thieving_active: bool,
+    pub is_running: bool,
+}
+
+impl From <&CurrentState> for CurrentState {
+    fn from(other: &CurrentState) -> Self {
+        CurrentState {
+            hp: other.hp,
+            on_top_replica_found: other.on_top_replica_found,
+            is_mutted: other.is_mutted,
+            auto_control: other.auto_control,
+            is_thieving_active: other.is_thieving_active,
+            is_running: other.is_running,
+        }
+    }
 }
 
 impl CurrentState {
@@ -99,6 +113,7 @@ impl CurrentState {
         self.is_mutted = other.is_mutted;
         self.auto_control = other.auto_control;
         self.is_thieving_active = other.is_thieving_active;
+        self.is_running = other.is_running;
     }
 }
 

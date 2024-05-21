@@ -3,15 +3,13 @@ use std::sync::{Arc, RwLock};
 use std::io::{self, Write};
 use std::thread;
 
-use mlv_screensaver::config::{AutoControlMode, Config, CurrentHpState, CurrentState, MuteOptions};
+use mlv_screensaver::config::{AutoControlMode, Config, CurrentState, MuteOptions};
 use mlv_screensaver::interface::Interface;
-use mlv_screensaver::hp::HpBarFinder;
 use rodio;
 use ctrlc;
 use crossterm::event;
 use crossterm::event::{Event, KeyCode};
-use enigo::{Button, Coordinate, Enigo, Mouse, Settings, Direction::{Press, Release}};
-use mlv_screensaver::automatization::Notifier;
+use mlv_screensaver::automatization::AutoControl;
 
 const MOUSE_COORDS: [i32; 2] = [820, 790];
 
@@ -51,24 +49,11 @@ fn get_config() -> Config {
 }
 
 
-fn move_mouse_and_click(x: i32, y: i32, mouse_button: Button, sleep_duration: std::time::Duration) {
-    let mut enigo = Enigo::new(&Settings::default()).unwrap();
-    let start = std::time::Instant::now();
-    while std::time::Instant::now() - start < sleep_duration {
-        thread::yield_now();
-    }
-    enigo.move_mouse(x, y, Coordinate::Abs).unwrap();
-    enigo.button(mouse_button, Press).unwrap();
-    thread::sleep(std::time::Duration::from_millis(20));
-    enigo.button(mouse_button, Release).unwrap();
-}
-
-
 fn main() {
     let config = get_config();
     let current_state = Arc::new(RwLock::new(CurrentState::default()));
+    let mut local_state = CurrentState::from(current_state.read().unwrap());
     println!("Run with config: {:?}", config);
-    
     let running = Arc::new(AtomicBool::new(true));
     ctrlc::set_handler({
         let r = running.clone();
@@ -78,82 +63,25 @@ fn main() {
         }
     }).expect("Error setting Ctrl-C handler");
 
-    let work_handler = thread::spawn({
-        let current_state_clone = current_state.clone();
-        let mut current_state_local = *current_state_clone.read().unwrap();
-        let r = running.clone();
-        let mut hp_founder = HpBarFinder::new("OnTopReplica");
-        let mut notifier = Notifier::new(
-            config.volume, "low_hp.wav", "hight_hp.wav"
-        );
-        move || {
-        let mut hight_hp_notified = false;
-        while r.load(Ordering::SeqCst) {
-            let mut sleep_duration = std::time::Duration::from_millis(1000);
-            let current_hp = hp_founder.get_hp();
-            current_state_clone.write().unwrap().on_top_replica_found = hp_founder.window_was_found();
-            
-            current_state_local.update_from(&current_state_clone.read().unwrap());
-            if let CurrentHpState::Hp(hp) = &current_hp {
-                if *hp < config.signal_threshold as f32 {
-                    hight_hp_notified = false;
-                    match current_state_local.auto_control {
-                        AutoControlMode::On if current_state_local.is_thieving_active == true => {
-                            current_state_clone.write().unwrap().is_thieving_active = false;
-                            move_mouse_and_click(
-                                MOUSE_COORDS[0], MOUSE_COORDS[1], Button::Left, 
-                                std::time::Duration::from_secs(3)
-                            );
-                        }
-                        AutoControlMode::Temporarily if current_state_local.is_thieving_active == true => {
-                            current_state_clone.write().unwrap().is_thieving_active = false;
-                            move_mouse_and_click(
-                                MOUSE_COORDS[0], MOUSE_COORDS[1], Button::Left, 
-                                std::time::Duration::from_secs(3)
-                            );
-                            current_state_clone.write().unwrap().auto_control = AutoControlMode::Off;
-                        }
-                        _ => {},
-                    };
-                    if current_state_local.is_mutted == MuteOptions::Unmute {
-                        notifier.low_hp_notify().unwrap();
-                        sleep_duration = std::time::Duration::from_millis(3000);
-                    }
-                } else if *hp > config.signal_threshold as f32 && current_state_local.is_mutted == MuteOptions::TempMute {
-                    current_state_clone.write().unwrap().is_mutted = MuteOptions::Unmute;
-                } else if *hp >= 99.0 {
-                    match current_state_local.auto_control {
-                        AutoControlMode::On | AutoControlMode::Temporarily if current_state_local.is_thieving_active == false => {
-                            current_state_clone.write().unwrap().is_thieving_active = true;
-                            move_mouse_and_click(
-                                MOUSE_COORDS[0], MOUSE_COORDS[1], Button::Left, std::time::Duration::default()
-                            );
-                        }
-                        _ => {},
-                    };
-                    if hight_hp_notified == false {
-                        hight_hp_notified = true;
-                        notifier.high_hp_notify().unwrap();
-                    }
-                }
-            };
-            current_state_clone.write().unwrap().hp = current_hp;
-            std::thread::sleep(sleep_duration);
-        }
-    }});
-    let interface_handler = thread::spawn({
-        let mut interface = Interface::new(current_state.clone());
-        interface.draw();
-        let r = running.clone();
-        move || {
-            while r.load(Ordering::SeqCst) {
-                interface.update();
-                std::thread::sleep(std::time::Duration::from_millis(200));
-            }
-        }
-    });
+    let work_handler = thread::spawn(
+        AutoControl::new(
+            current_state.clone(),
+            config,
+            MOUSE_COORDS,
+            "Low hp",
+            "High hp",
+            std::time::Duration::from_millis(1000)
+        ).unwrap().run()
+    );
+    let interface_handler = thread::spawn(
+        Interface::new(
+            current_state.clone(),
+            std::time::Duration::from_millis(200)
+        ).update()
+    );
 
-    while running.load(Ordering::SeqCst) {
+    while local_state.is_running {
+        local_state.update_from(&current_state.read().unwrap());
         if let Event::Key(event) = event::read().unwrap() {
             if event.kind == event::KeyEventKind::Release {
                 continue;
@@ -228,10 +156,6 @@ fn main() {
                         current_state.read().unwrap().is_thieving_active
                     };
                     current_state.write().unwrap().is_thieving_active = !is_thiving_active;
-                }
-                KeyCode::Char('G' | 'g' | 'П' | 'п') => {
-                    thread::sleep(std::time::Duration::from_millis(2000));
-                    move_mouse_and_click(MOUSE_COORDS[0], MOUSE_COORDS[1], Button::Left, std::time::Duration::default());
                 }
                 KeyCode::Char('Q' | 'q' | 'Й' | 'й') => {
                     running.store(false, Ordering::SeqCst);

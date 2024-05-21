@@ -63,22 +63,20 @@ fn main() {
         }
     }).expect("Error setting Ctrl-C handler");
 
-    let work_handler = thread::spawn(
-        AutoControl::new(
-            current_state.clone(),
-            config,
-            MOUSE_COORDS,
-            "Low hp",
-            "High hp",
-            std::time::Duration::from_millis(1000)
-        ).unwrap().run()
+    let mut auto_control = AutoControl::new(
+        current_state.clone(),
+        config,
+        MOUSE_COORDS,
+        "Low hp",
+        "High hp",
+        std::time::Duration::from_millis(1000)
+    ).unwrap();
+    let mut interface = Interface::new(
+        current_state.clone(),
+        std::time::Duration::from_millis(200)
     );
-    let interface_handler = thread::spawn(
-        Interface::new(
-            current_state.clone(),
-            std::time::Duration::from_millis(200)
-        ).update()
-    );
+    let work_handler = thread::spawn(move || {auto_control.run()});
+    let interface_handler = thread::spawn(move || {interface.update()});
 
     while local_state.is_running {
         local_state.update_from(&current_state.read().unwrap());

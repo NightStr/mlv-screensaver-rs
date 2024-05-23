@@ -85,6 +85,7 @@ pub struct AutoControl {
 
 impl AutoControl {
     pub fn new(
+        window_name: &'static str,
         shared_app_state: Arc<RwLock<CurrentState>>,
         config: Config,
         thieving_switch_button_coords: [i32; 2],
@@ -94,7 +95,7 @@ impl AutoControl {
     ) -> Result<Self, &'static str> {
         let auto_clicker = AutoClicker::new()?;
         let notifier = Notifier::new(config.volume, low_hp_alert, high_hp_alert);
-        let hp_bar_finder = HpBarFinder::new("Old School RuneScape");
+        let hp_bar_finder = HpBarFinder::new(window_name);
         let app_state = *shared_app_state.read().unwrap();
 
         Ok(AutoControl{

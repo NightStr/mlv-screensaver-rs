@@ -58,6 +58,7 @@ fn main() {
     }).expect("Error setting Ctrl-C handler");
 
     let mut auto_control = AutoControl::new(
+        "OnTopReplica",
         current_state.clone(),
         config,
         MOUSE_COORDS,

@@ -168,7 +168,7 @@ impl AutoControl {
                         sleep_duration = std::time::Duration::from_millis(3000);
                     }
                 }
-                if *hp < self.config.signal_threshold as f32 &&
+                if *hp > self.config.signal_threshold as f32 &&
                     self.app_state.is_muted == MuteOptions::TempMute
                 {
                     self.shared_app_state.write().unwrap().is_muted = MuteOptions::Unmute;
